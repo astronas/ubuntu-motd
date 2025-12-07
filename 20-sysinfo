@@ -2,12 +2,19 @@
 # Custom system info + network zone (DMZ/LAN/OTHER) + updates, with green highlights
 #
 # Zones réseau configurables via variables d'environnement :
-#   MOTD_ZONE_DMZ_REGEX   : regex (grep -E) sur l'IP complète pour classer en DMZ
-#   MOTD_ZONE_LAN_REGEX   : regex (grep -E) sur l'IP complète pour classer en LAN
-#   MOTD_ZONE_OTHER_LABEL : libellé pour la 3e zone (par défaut "OTHER" si utilisé)
+#   MOTD_ZONE_DMZ_REGEX    : regex (grep -E) sur l'IP complète pour classer en DMZ
+#   MOTD_ZONE_LAN_REGEX    : regex (grep -E) sur l'IP complète pour classer en LAN
+#   MOTD_ZONE_OTHER_LABEL  : libellé pour la 3e zone (par défaut "OTHER" si utilisé)
 #
 # Si AUCUNE de ces variables n'est définie :
 #   -> on n'affiche PAS "Zone: ..." (juste Network.....: @IP)
+
+# 0) Charger les variables MOTD_* depuis /etc/environment
+if [ -r /etc/environment ]; then
+  set -a
+  . /etc/environment
+  set +a
+fi
 
 GREEN="\033[1;32m"
 BLUE="\033[1;34m"
@@ -61,7 +68,6 @@ MEM_TOTAL=$(printf '%s\n' "$MEM_LINE" | awk '{print $3}')
 
 # Primary IPv4
 IP=$(hostname -I 2>/dev/null | awk '{print $1}')
-
 ZONE=""
 ZONE_LABEL=""
 OTHER_LABEL="${MOTD_ZONE_OTHER_LABEL:-OTHER}"
@@ -73,13 +79,11 @@ ZONE_CFG=0
 [ -n "${MOTD_ZONE_OTHER_LABEL:-}" ] && ZONE_CFG=1
 
 if [ -n "$IP" ] && [ "$ZONE_CFG" -eq 1 ]; then
-  # 1) Si des regex custom sont définies, on les utilise
   if [ -n "${MOTD_ZONE_DMZ_REGEX:-}" ] && printf '%s\n' "$IP" | grep -Eq "$MOTD_ZONE_DMZ_REGEX"; then
     ZONE="DMZ"
   elif [ -n "${MOTD_ZONE_LAN_REGEX:-}" ] && printf '%s\n' "$IP" | grep -Eq "$MOTD_ZONE_LAN_REGEX"; then
     ZONE="LAN"
   else
-    # Sinon, zone "autre" seulement si un label est défini
     if [ -n "${MOTD_ZONE_OTHER_LABEL:-}" ]; then
       ZONE="$OTHER_LABEL"
     else
@@ -90,44 +94,28 @@ fi
 
 # Colorisation du label de zone
 case "$ZONE" in
-  DMZ)
-    ZONE_LABEL="${RED}DMZ${RESET}"
-    ;;
-  LAN)
-    ZONE_LABEL="${BLUE}LAN${RESET}"
-    ;;
-  "")
-    ZONE_LABEL=""
-    ;;
-  *)
-    # Autre libellé (OTHER ou personnalisé)
-    ZONE_LABEL="${YELLOW}${ZONE}${RESET}"
-    ;;
+  DMZ)  ZONE_LABEL="${RED}DMZ${RESET}" ;;
+  LAN)  ZONE_LABEL="${BLUE}LAN${RESET}" ;;
+  "")   ZONE_LABEL="" ;;
+  *)    ZONE_LABEL="${YELLOW}${ZONE}${RESET}" ;;
 esac
 
 echo
 echo "system info:"
-
-# Distro / Kernel en vert
 printf "  Distro......: %b%s%b\n" "$GREEN" "$DISTRO" "$RESET"
 printf "  Kernel......: %bLinux %s%b\n" "$GREEN" "$KERNEL" "$RESET"
 
-# Uptime : seulement les nombres en vert
 if [ -n "$COLORED_UPTIME" ]; then
   printf "  Uptime......: %b\n" "$COLORED_UPTIME"
 fi
 
 echo
-# CPU : nombre de vCPU en vert
 printf "  CPU.........: %s (%b%s%b vCPU)\n" "$CPU_MODEL" "$GREEN" "$VCPUS" "$RESET"
-
-# Memory : chaque valeur (avec son unité) en vert
 printf "  Memory......: %b%s%b used, %b%s%b avail, %b%s%b total\n" \
   "$GREEN" "$MEM_USED" "$RESET" \
   "$GREEN" "$MEM_AVAIL" "$RESET" \
   "$GREEN" "$MEM_TOTAL" "$RESET"
 
-# Network + Zone (optionnelle)
 if [ -n "$IP" ] && [ -n "$ZONE_LABEL" ]; then
   printf "  Network.....: %s | Zone: %b\n" "$IP" "$ZONE_LABEL"
 elif [ -n "$IP" ]; then
@@ -136,7 +124,6 @@ fi
 
 # --- Updates intégrés ici ---
 if command -v apt >/dev/null 2>&1; then
-  # Ligne vide de séparation
   echo
 
   UPDATES_LIST=$(apt list --upgradable 2>/dev/null | sed '1{/^Listing/d}')
@@ -158,7 +145,6 @@ if command -v apt >/dev/null 2>&1; then
   printf "  Updates.....: %b (🛡️ %b security | 📦 %b others)\n" \
     "$TOTAL_COLOR" "$SECURITY_COLOR" "$OTHER_COLOR"
 
-  # Reboot required?
   if [ -f /run/reboot-required ] || [ -f /var/run/reboot-required ]; then
     STATUS_TEXT="${LRED}required!${RESET}"
   else

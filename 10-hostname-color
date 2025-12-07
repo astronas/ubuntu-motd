@@ -2,11 +2,18 @@
 # Custom hostname banner:
 # - Start from short hostname (hostname -s)
 # - Optionally strip a configurable prefix/suffix via env vars:
-#     MOTD_HOST_PREFIX_STRIP  : prefix to remove if present (ex: "s-vm-")
-#     MOTD_HOST_SUFFIX_STRIP  : suffix to remove if present (ex: "-01")
-#     MOTD_HOST_OVERRIDE      : final name to display (overrides everything)
+#   MOTD_HOST_PREFIX_STRIP : prefix to remove if present (ex: "s-vm-")
+#   MOTD_HOST_SUFFIX_STRIP : suffix to remove if present (ex: "-01")
+#   MOTD_HOST_OVERRIDE     : final name to display (overrides everything)
 # - If no env vars are set => keep hostname as-is
 # - Render big ASCII with figlet (+ lolcat if available)
+
+# 0) Charger les variables MOTD_* depuis /etc/environment (si PAM ne les passe pas)
+if [ -r /etc/environment ]; then
+  set -a
+  . /etc/environment
+  set +a
+fi
 
 RAW_HOSTNAME=$(hostname -s)
 APP_NAME="$RAW_HOSTNAME"

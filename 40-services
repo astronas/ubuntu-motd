@@ -6,8 +6,13 @@
 #
 # Exemple :
 #   MOTD_SERVICES="ssh:ssh:🔐 fail2ban:fail2ban:🛡️ ufw:ufw:🚧 docker:docker:🐳 nginx:nginx:🌐 apache2:apache2:📦"
-#
-# Si MOTD_SERVICES n'est PAS définie, une liste par défaut est utilisée.
+
+# 0) Charger les variables MOTD_* depuis /etc/environment
+if [ -r /etc/environment ]; then
+  set -a
+  . /etc/environment
+  set +a
+fi
 
 if ! command -v systemctl >/dev/null 2>&1; then
   exit 0
@@ -20,7 +25,6 @@ service_status() {
   LABEL="$2"
   ICON="$3"
 
-  # Vérifier si l'unité existe (unit-file ou service connu de systemd)
   if systemctl list-unit-files "${NAME}.service" >/dev/null 2>&1 || \
      systemctl status "$NAME" >/dev/null 2>&1; then
 
@@ -43,19 +47,15 @@ service_status() {
     STATUS_COLOR="\033[1;90m$STATUS\033[0m"        # gris
   fi
 
-  # Label paddé à 10 caractères puis mis en gras
   PADDED_LABEL=$(printf '%-10s' "$LABEL")
   BOLD_LABEL="\033[1m${PADDED_LABEL}\033[0m"
 
-  # Une "colonne" : icône + label en gras + statut coloré, SANS retour à la ligne
   printf "  %s %b: %b" "$ICON" "$BOLD_LABEL" "$STATUS_COLOR"
 
   COUNTER=$((COUNTER + 1))
   if [ $((COUNTER % 3)) -eq 0 ]; then
-    # Fin de ligne après 3 colonnes
     printf "\n"
   else
-    # Séparateur entre colonnes
     printf "    "
   fi
 }
@@ -64,38 +64,30 @@ echo
 echo "services:"
 
 if [ -n "${MOTD_SERVICES:-}" ]; then
-  # On parse MOTD_SERVICES : "name:label:icon name2:label2:icon2 ..."
   OLDIFS=$IFS
   IFS=' '
-
   for entry in $MOTD_SERVICES; do
     [ -z "$entry" ] && continue
     IFS=':'; set -- $entry
     NAME="$1"
     LABEL="$2"
     ICON="$3"
-
-    # Sécurité : si pas de label, on reprend le nom
     [ -z "$NAME" ] && continue
     [ -z "$LABEL" ] && LABEL="$NAME"
     [ -z "$ICON" ] && ICON="•"
-
     service_status "$NAME" "$LABEL" "$ICON"
   done
-
   IFS=$OLDIFS
 else
-  # Liste par défaut si MOTD_SERVICES n'est pas définie
-  service_status ssh      "ssh"      "🔐"
-  service_status fail2ban "fail2ban" "🛡️"
-  service_status ufw      "ufw"      "🚧"
-
-  service_status docker   "docker"   "🐳"
-  service_status nginx    "nginx"    "🌐"
-  service_status apache2  "apache2"  "📦"
+  # Fallback par défaut
+  service_status ssh       "ssh"       "🔐"
+  service_status fail2ban  "fail2ban"  "🛡️"
+  service_status ufw       "ufw"       "🚧"
+  service_status docker    "docker"    "🐳"
+  service_status nginx     "nginx"     "🌐"
+  service_status apache2   "apache2"   "📦"
 fi
 
-# Si la dernière ligne n'était pas complète (1 ou 2 colonnes), forcer un retour à la ligne
 if [ "$COUNTER" -ne 0 ] && [ $((COUNTER % 3)) -ne 0 ]; then
   printf "\n"
 fi
