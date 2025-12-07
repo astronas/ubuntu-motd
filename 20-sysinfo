@@ -1,29 +1,169 @@
-#!/bin/bash
+#!/bin/sh
+# Custom system info + network zone (DMZ/LAN/OTHER) + updates, with green highlights
+#
+# Zones réseau configurables via variables d'environnement :
+#   MOTD_ZONE_DMZ_REGEX   : regex (grep -E) sur l'IP complète pour classer en DMZ
+#   MOTD_ZONE_LAN_REGEX   : regex (grep -E) sur l'IP complète pour classer en LAN
+#   MOTD_ZONE_OTHER_LABEL : libellé pour la 3e zone (par défaut "OTHER" si utilisé)
+#
+# Si AUCUNE de ces variables n'est définie :
+#   -> on n'affiche PAS "Zone: ..." (juste Network.....: @IP)
 
-# get load averages
-IFS=" " read LOAD1 LOAD5 LOAD15 <<<$(cat /proc/loadavg | awk '{ print $1,$2,$3 }')
-# get free memory
-IFS=" " read USED AVAIL TOTAL <<<$(free -htm | grep "Mem" | awk {'print $3,$7,$2'})
-# get processes
-PROCESS=`ps -eo user=|sort|uniq -c | awk '{ print $2 " " $1 }'`
-PROCESS_ALL=`echo "$PROCESS"| awk {'print $2'} | awk '{ SUM += $1} END { print SUM }'`
-PROCESS_ROOT=`echo "$PROCESS"| grep root | awk {'print $2'}`
-PROCESS_USER=`echo "$PROCESS"| grep -v root | awk {'print $2'} | awk '{ SUM += $1} END { print SUM }'`
-# get processors
-PROCESSOR_NAME=`grep "model name" /proc/cpuinfo | cut -d ' ' -f3- | awk {'print $0'} | head -1`
-PROCESSOR_COUNT=`grep -ioP 'processor\t:' /proc/cpuinfo | wc -l`
+GREEN="\033[1;32m"
+BLUE="\033[1;34m"
+RED="\033[1;31m"
+YELLOW="\033[1;33m"
+RESET="\033[0m"
 
-W="\e[0;39m"
-G="\e[1;32m"
+LGREEN="\033[1;92m"
+LBLUE="\033[1;94m"
+LMAGENTA="\033[1;95m"
+LRED="\033[1;91m"
 
-echo -e "
-${W}system info:
-$W  Distro......: $W`cat /etc/*release | grep "PRETTY_NAME" | cut -d "=" -f 2- | sed 's/"//g'`
-$W  Kernel......: $W`uname -sr`
+# Distro & kernel
+if command -v lsb_release >/dev/null 2>&1; then
+  DISTRO=$(lsb_release -ds)
+else
+  DISTRO="$(uname -s) $(uname -r)"
+fi
+KERNEL=$(uname -r)
 
-$W  Uptime......: $W`uptime -p`
-$W  Load........: $G$LOAD1$W (1m), $G$LOAD5$W (5m), $G$LOAD15$W (15m)
-$W  Processes...:$W $G$PROCESS_ROOT$W (root), $G$PROCESS_USER$W (user), $G$PROCESS_ALL$W (total)
+# Uptime (pretty)
+if uptime -p >/dev/null 2>&1; then
+  UPTIME_RAW=$(uptime -p 2>/dev/null | sed 's/^up //')
+else
+  UPTIME_RAW=$(uptime | sed 's/.*up \([^,]*\), .*/\1/')
+fi
 
-$W  CPU.........: $W$PROCESSOR_NAME ($G$PROCESSOR_COUNT$W vCPU)
-$W  Memory......: $G$USED$W used, $G$AVAIL$W avail, $G$TOTAL$W total$W"
+# Uptime avec uniquement les nombres en vert
+COLORED_UPTIME=""
+for token in $UPTIME_RAW; do
+  if printf '%s\n' "$token" | grep -Eq '^[0-9]+$'; then
+    COLORED_UPTIME="$COLORED_UPTIME ${GREEN}${token}${RESET}"
+  else
+    COLORED_UPTIME="$COLORED_UPTIME $token"
+  fi
+done
+COLORED_UPTIME=${COLORED_UPTIME# }
+
+# CPU model & vCPUs
+CPU_MODEL=$(lscpu 2>/dev/null | awk -F: '/Model name/ {sub(/^ +/, "", $2); print $2; exit}')
+if [ -z "$CPU_MODEL" ]; then
+  CPU_MODEL=$(grep -m1 'model name' /proc/cpuinfo 2>/dev/null | cut -d: -f2- | sed 's/^ *//')
+fi
+VCPUS=$(nproc 2>/dev/null || echo "?")
+
+# Memory (used / available / total)
+MEM_LINE=$(free -h | awk '/^Mem:/ {print $3" "$7" "$2}')
+MEM_USED=$(printf '%s\n' "$MEM_LINE" | awk '{print $1}')
+MEM_AVAIL=$(printf '%s\n' "$MEM_LINE" | awk '{print $2}')
+MEM_TOTAL=$(printf '%s\n' "$MEM_LINE" | awk '{print $3}')
+
+# Primary IPv4
+IP=$(hostname -I 2>/dev/null | awk '{print $1}')
+
+ZONE=""
+ZONE_LABEL=""
+OTHER_LABEL="${MOTD_ZONE_OTHER_LABEL:-OTHER}"
+
+# Est-ce qu'au moins une config de zone est définie ?
+ZONE_CFG=0
+[ -n "${MOTD_ZONE_DMZ_REGEX:-}" ] && ZONE_CFG=1
+[ -n "${MOTD_ZONE_LAN_REGEX:-}" ] && ZONE_CFG=1
+[ -n "${MOTD_ZONE_OTHER_LABEL:-}" ] && ZONE_CFG=1
+
+if [ -n "$IP" ] && [ "$ZONE_CFG" -eq 1 ]; then
+  # 1) Si des regex custom sont définies, on les utilise
+  if [ -n "${MOTD_ZONE_DMZ_REGEX:-}" ] && printf '%s\n' "$IP" | grep -Eq "$MOTD_ZONE_DMZ_REGEX"; then
+    ZONE="DMZ"
+  elif [ -n "${MOTD_ZONE_LAN_REGEX:-}" ] && printf '%s\n' "$IP" | grep -Eq "$MOTD_ZONE_LAN_REGEX"; then
+    ZONE="LAN"
+  else
+    # Sinon, zone "autre" seulement si un label est défini
+    if [ -n "${MOTD_ZONE_OTHER_LABEL:-}" ]; then
+      ZONE="$OTHER_LABEL"
+    else
+      ZONE=""
+    fi
+  fi
+fi
+
+# Colorisation du label de zone
+case "$ZONE" in
+  DMZ)
+    ZONE_LABEL="${RED}DMZ${RESET}"
+    ;;
+  LAN)
+    ZONE_LABEL="${BLUE}LAN${RESET}"
+    ;;
+  "")
+    ZONE_LABEL=""
+    ;;
+  *)
+    # Autre libellé (OTHER ou personnalisé)
+    ZONE_LABEL="${YELLOW}${ZONE}${RESET}"
+    ;;
+esac
+
+echo
+echo "system info:"
+
+# Distro / Kernel en vert
+printf "  Distro......: %b%s%b\n" "$GREEN" "$DISTRO" "$RESET"
+printf "  Kernel......: %bLinux %s%b\n" "$GREEN" "$KERNEL" "$RESET"
+
+# Uptime : seulement les nombres en vert
+if [ -n "$COLORED_UPTIME" ]; then
+  printf "  Uptime......: %b\n" "$COLORED_UPTIME"
+fi
+
+echo
+# CPU : nombre de vCPU en vert
+printf "  CPU.........: %s (%b%s%b vCPU)\n" "$CPU_MODEL" "$GREEN" "$VCPUS" "$RESET"
+
+# Memory : chaque valeur (avec son unité) en vert
+printf "  Memory......: %b%s%b used, %b%s%b avail, %b%s%b total\n" \
+  "$GREEN" "$MEM_USED" "$RESET" \
+  "$GREEN" "$MEM_AVAIL" "$RESET" \
+  "$GREEN" "$MEM_TOTAL" "$RESET"
+
+# Network + Zone (optionnelle)
+if [ -n "$IP" ] && [ -n "$ZONE_LABEL" ]; then
+  printf "  Network.....: %s | Zone: %b\n" "$IP" "$ZONE_LABEL"
+elif [ -n "$IP" ]; then
+  printf "  Network.....: %s\n" "$IP"
+fi
+
+# --- Updates intégrés ici ---
+if command -v apt >/dev/null 2>&1; then
+  # Ligne vide de séparation
+  echo
+
+  UPDATES_LIST=$(apt list --upgradable 2>/dev/null | sed '1{/^Listing/d}')
+
+  if [ -n "$UPDATES_LIST" ]; then
+    TOTAL=$(printf '%s\n' "$UPDATES_LIST" | wc -l | tr -d ' ')
+    SECURITY=$(printf '%s\n' "$UPDATES_LIST" | grep -i 'security' | wc -l | tr -d ' ')
+  else
+    TOTAL=0
+    SECURITY=0
+  fi
+
+  OTHER_UPD=$((TOTAL - SECURITY))
+
+  TOTAL_COLOR="${LGREEN}${TOTAL}${RESET}"
+  SECURITY_COLOR="${LBLUE}${SECURITY}${RESET}"
+  OTHER_COLOR="${LMAGENTA}${OTHER_UPD}${RESET}"
+
+  printf "  Updates.....: %b (🛡️ %b security | 📦 %b others)\n" \
+    "$TOTAL_COLOR" "$SECURITY_COLOR" "$OTHER_COLOR"
+
+  # Reboot required?
+  if [ -f /run/reboot-required ] || [ -f /var/run/reboot-required ]; then
+    STATUS_TEXT="${LRED}required!${RESET}"
+  else
+    STATUS_TEXT="${LGREEN}not required!${RESET}"
+  fi
+
+  printf "  Reboot......: %b\n" "$STATUS_TEXT"
+fi

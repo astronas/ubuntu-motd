@@ -1,3 +1,61 @@
-#!/bin/bash
+#!/bin/sh
+# Custom hostname banner:
+# - Start from short hostname (hostname -s)
+# - Optionally strip a configurable prefix/suffix via env vars:
+#     MOTD_HOST_PREFIX_STRIP  : prefix to remove if present (ex: "s-vm-")
+#     MOTD_HOST_SUFFIX_STRIP  : suffix to remove if present (ex: "-01")
+#     MOTD_HOST_OVERRIDE      : final name to display (overrides everything)
+# - If no env vars are set => keep hostname as-is
+# - Render big ASCII with figlet (+ lolcat if available)
 
-/usr/bin/env figlet "$(hostname)" | /usr/bin/env lolcat -f
+RAW_HOSTNAME=$(hostname -s)
+APP_NAME="$RAW_HOSTNAME"
+
+# 1) Prefix stripping (only if configured)
+if [ -n "${MOTD_HOST_PREFIX_STRIP:-}" ]; then
+  PREFIX="$MOTD_HOST_PREFIX_STRIP"
+  case "$APP_NAME" in
+    "$PREFIX"*)
+      APP_NAME=${APP_NAME#"$PREFIX"}
+      ;;
+  esac
+fi
+
+# 2) Suffix stripping (only if configured)
+if [ -n "${MOTD_HOST_SUFFIX_STRIP:-}" ]; then
+  SUFFIX="$MOTD_HOST_SUFFIX_STRIP"
+  case "$APP_NAME" in
+    *"$SUFFIX")
+      APP_NAME=${APP_NAME%"$SUFFIX"}
+      ;;
+  esac
+fi
+
+# 3) Optional override (force final name)
+if [ -n "${MOTD_HOST_OVERRIDE:-}" ]; then
+  APP_NAME="$MOTD_HOST_OVERRIDE"
+fi
+
+# Nettoyage : pas de \r ou \n dans le nom
+APP_NAME=$(printf '%s' "$APP_NAME" | tr -d '\r\n')
+
+# Détection figlet / lolcat (Ubuntu met souvent lolcat dans /usr/games)
+FIGLET_BIN=$(command -v figlet 2>/dev/null || echo "")
+LOLCAT_BIN=""
+
+if [ -x /usr/games/lolcat ]; then
+  LOLCAT_BIN="/usr/games/lolcat"
+else
+  LOLCAT_BIN=$(command -v lolcat 2>/dev/null || echo "")
+fi
+
+if [ -n "$FIGLET_BIN" ]; then
+  if [ -n "$LOLCAT_BIN" ]; then
+    # Largeur généreuse pour éviter les wraps bizarres
+    "$FIGLET_BIN" -w 200 "$APP_NAME" | "$LOLCAT_BIN" -f
+  else
+    "$FIGLET_BIN" -w 200 "$APP_NAME"
+  fi
+else
+  printf '*** %s ***\n' "$APP_NAME"
+fi
