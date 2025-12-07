@@ -1,30 +1,29 @@
 #!/bin/sh
-# Custom DevOps / IT services overview for MOTD (3 columns, emojis & colors)
-#
-# Services configurables via la variable d'environnement MOTD_SERVICES :
-#   MOTD_SERVICES="name:label:icon name2:label2:icon2 ..."
-#
-# Exemple :
-#   MOTD_SERVICES="ssh:ssh:🔐 fail2ban:fail2ban:🛡️ ufw:ufw:🚧 docker:docker:🐳 nginx:nginx:🌐 apache2:apache2:📦"
+# MOTD services summary: shows service status in 3 columns with icons.
+# Configure via env `MOTD_SERVICES`: "name:label:icon name2:label2:icon2 ..."
+# Example: "ssh:ssh:🔐 fail2ban:fail2ban:🛡️ ufw:ufw:🚧 docker:docker:🐳 nginx:nginx:🌐 apache2:apache2:📦"
 
-# 0) Charger les variables MOTD_* depuis /etc/environment
+# Load MOTD_* variables from `/etc/environment` if present.
 if [ -r /etc/environment ]; then
   set -a
   . /etc/environment
   set +a
 fi
 
+# Exit quietly if `systemctl` is not available (non-systemd systems).
 if ! command -v systemctl >/dev/null 2>&1; then
   exit 0
 fi
 
 COUNTER=0
 
+# Print one service line with status/color, keeping 3-column layout.
 service_status() {
   NAME="$1"
   LABEL="$2"
   ICON="$3"
 
+  # Detect service existence via unit files or status, then read activity.
   if systemctl list-unit-files "${NAME}.service" >/dev/null 2>&1 || \
      systemctl status "$NAME" >/dev/null 2>&1; then
 
@@ -33,18 +32,18 @@ service_status() {
 
     case "$STATUS" in
       active)
-        STATUS_COLOR="\033[1;32m$STATUS\033[0m"    # vert
+        STATUS_COLOR="\033[1;32m$STATUS\033[0m"    # green
         ;;
       inactive|failed)
-        STATUS_COLOR="\033[1;31m$STATUS\033[0m"    # rouge
+        STATUS_COLOR="\033[1;31m$STATUS\033[0m"    # red
         ;;
       *)
-        STATUS_COLOR="\033[1;33m$STATUS\033[0m"    # jaune / autre
+        STATUS_COLOR="\033[1;33m$STATUS\033[0m"    # yellow / other
         ;;
     esac
   else
     STATUS="absent"
-    STATUS_COLOR="\033[1;90m$STATUS\033[0m"        # gris
+    STATUS_COLOR="\033[1;90m$STATUS\033[0m"        # gray
   fi
 
   PADDED_LABEL=$(printf '%-10s' "$LABEL")
@@ -64,6 +63,7 @@ echo
 echo "services:"
 
 if [ -n "${MOTD_SERVICES:-}" ]; then
+  # Parse `MOTD_SERVICES` entries separated by spaces; each entry `name:label:icon`.
   OLDIFS=$IFS
   IFS=' '
   for entry in $MOTD_SERVICES; do
@@ -79,7 +79,7 @@ if [ -n "${MOTD_SERVICES:-}" ]; then
   done
   IFS=$OLDIFS
 else
-  # Fallback par défaut
+  # Default fallback list of common services.
   service_status ssh       "ssh"       "🔐"
   service_status fail2ban  "fail2ban"  "🛡️"
   service_status ufw       "ufw"       "🚧"
@@ -88,6 +88,7 @@ else
   service_status apache2   "apache2"   "📦"
 fi
 
+# Ensure newline when last row is not full.
 if [ "$COUNTER" -ne 0 ] && [ $((COUNTER % 3)) -ne 0 ]; then
   printf "\n"
 fi

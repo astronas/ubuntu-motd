@@ -1,15 +1,12 @@
 #!/bin/sh
-# Custom system info + network zone (DMZ/LAN/OTHER) + updates, with green highlights
-#
-# Zones réseau configurables via variables d'environnement :
-#   MOTD_ZONE_DMZ_REGEX    : regex (grep -E) sur l'IP complète pour classer en DMZ
-#   MOTD_ZONE_LAN_REGEX    : regex (grep -E) sur l'IP complète pour classer en LAN
-#   MOTD_ZONE_OTHER_LABEL  : libellé pour la 3e zone (par défaut "OTHER" si utilisé)
-#
-# Si AUCUNE de ces variables n'est définie :
-#   -> on n'affiche PAS "Zone: ..." (juste Network.....: @IP)
+# System info summary: distro/kernel, uptime, CPU/memory, IP, optional zone, updates.
+# Zone config via env:
+# - `MOTD_ZONE_DMZ_REGEX`: grep -E regex on IP to classify as DMZ
+# - `MOTD_ZONE_LAN_REGEX`: grep -E regex on IP to classify as LAN
+# - `MOTD_ZONE_OTHER_LABEL`: label for other zone (default shown only if set)
+# If none set, omit the "Zone:" label and show only IP.
 
-# 0) Charger les variables MOTD_* depuis /etc/environment
+# Load MOTD_* env from `/etc/environment`.
 if [ -r /etc/environment ]; then
   set -a
   . /etc/environment
@@ -27,7 +24,7 @@ LBLUE="\033[1;94m"
 LMAGENTA="\033[1;95m"
 LRED="\033[1;91m"
 
-# Distro & kernel
+# Distro & kernel.
 if command -v lsb_release >/dev/null 2>&1; then
   DISTRO=$(lsb_release -ds)
 else
@@ -35,14 +32,14 @@ else
 fi
 KERNEL=$(uname -r)
 
-# Uptime (pretty)
+# Uptime (pretty format).
 if uptime -p >/dev/null 2>&1; then
   UPTIME_RAW=$(uptime -p 2>/dev/null | sed 's/^up //')
 else
   UPTIME_RAW=$(uptime | sed 's/.*up \([^,]*\), .*/\1/')
 fi
 
-# Uptime avec uniquement les nombres en vert
+# Highlight numbers in uptime as green.
 COLORED_UPTIME=""
 for token in $UPTIME_RAW; do
   if printf '%s\n' "$token" | grep -Eq '^[0-9]+$'; then
@@ -53,26 +50,26 @@ for token in $UPTIME_RAW; do
 done
 COLORED_UPTIME=${COLORED_UPTIME# }
 
-# CPU model & vCPUs
+# CPU model & vCPUs.
 CPU_MODEL=$(lscpu 2>/dev/null | awk -F: '/Model name/ {sub(/^ +/, "", $2); print $2; exit}')
 if [ -z "$CPU_MODEL" ]; then
   CPU_MODEL=$(grep -m1 'model name' /proc/cpuinfo 2>/dev/null | cut -d: -f2- | sed 's/^ *//')
 fi
 VCPUS=$(nproc 2>/dev/null || echo "?")
 
-# Memory (used / available / total)
+# Memory (used / available / total).
 MEM_LINE=$(free -h | awk '/^Mem:/ {print $3" "$7" "$2}')
 MEM_USED=$(printf '%s\n' "$MEM_LINE" | awk '{print $1}')
 MEM_AVAIL=$(printf '%s\n' "$MEM_LINE" | awk '{print $2}')
 MEM_TOTAL=$(printf '%s\n' "$MEM_LINE" | awk '{print $3}')
 
-# Primary IPv4
+# Primary IPv4 and optional zone classification.
 IP=$(hostname -I 2>/dev/null | awk '{print $1}')
 ZONE=""
 ZONE_LABEL=""
 OTHER_LABEL="${MOTD_ZONE_OTHER_LABEL:-OTHER}"
 
-# Est-ce qu'au moins une config de zone est définie ?
+# Check if any zone config is defined.
 ZONE_CFG=0
 [ -n "${MOTD_ZONE_DMZ_REGEX:-}" ] && ZONE_CFG=1
 [ -n "${MOTD_ZONE_LAN_REGEX:-}" ] && ZONE_CFG=1
@@ -92,7 +89,7 @@ if [ -n "$IP" ] && [ "$ZONE_CFG" -eq 1 ]; then
   fi
 fi
 
-# Colorisation du label de zone
+# Colorize zone label.
 case "$ZONE" in
   DMZ)  ZONE_LABEL="${RED}DMZ${RESET}" ;;
   LAN)  ZONE_LABEL="${BLUE}LAN${RESET}" ;;
@@ -122,7 +119,7 @@ elif [ -n "$IP" ]; then
   printf "  Network.....: %s\n" "$IP"
 fi
 
-# --- Updates intégrés ici ---
+# Integrated updates summary (apt-based distros only).
 if command -v apt >/dev/null 2>&1; then
   echo
 

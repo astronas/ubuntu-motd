@@ -1,14 +1,9 @@
 #!/bin/sh
-# Custom hostname banner:
-# - Start from short hostname (hostname -s)
-# - Optionally strip a configurable prefix/suffix via env vars:
-#   MOTD_HOST_PREFIX_STRIP : prefix to remove if present (ex: "s-vm-")
-#   MOTD_HOST_SUFFIX_STRIP : suffix to remove if present (ex: "-01")
-#   MOTD_HOST_OVERRIDE     : final name to display (overrides everything)
-# - If no env vars are set => keep hostname as-is
-# - Render big ASCII with figlet (+ lolcat if available)
+# Hostname banner: derives display name, strips optional prefix/suffix, supports override.
+# Env: `MOTD_HOST_PREFIX_STRIP`, `MOTD_HOST_SUFFIX_STRIP`, `MOTD_HOST_OVERRIDE`.
+# Renders with `figlet` (and `lolcat` if available) or a simple fallback.
 
-# 0) Charger les variables MOTD_* depuis /etc/environment (si PAM ne les passe pas)
+# Load MOTD_* from `/etc/environment` when PAM does not pass them.
 if [ -r /etc/environment ]; then
   set -a
   . /etc/environment
@@ -18,7 +13,7 @@ fi
 RAW_HOSTNAME=$(hostname -s)
 APP_NAME="$RAW_HOSTNAME"
 
-# 1) Prefix stripping (only if configured)
+# Strip prefix if configured.
 if [ -n "${MOTD_HOST_PREFIX_STRIP:-}" ]; then
   PREFIX="$MOTD_HOST_PREFIX_STRIP"
   case "$APP_NAME" in
@@ -28,7 +23,7 @@ if [ -n "${MOTD_HOST_PREFIX_STRIP:-}" ]; then
   esac
 fi
 
-# 2) Suffix stripping (only if configured)
+# Strip suffix if configured.
 if [ -n "${MOTD_HOST_SUFFIX_STRIP:-}" ]; then
   SUFFIX="$MOTD_HOST_SUFFIX_STRIP"
   case "$APP_NAME" in
@@ -38,15 +33,15 @@ if [ -n "${MOTD_HOST_SUFFIX_STRIP:-}" ]; then
   esac
 fi
 
-# 3) Optional override (force final name)
+# Optional final override.
 if [ -n "${MOTD_HOST_OVERRIDE:-}" ]; then
   APP_NAME="$MOTD_HOST_OVERRIDE"
 fi
 
-# Nettoyage : pas de \r ou \n dans le nom
+# Sanitize: remove CR/LF from name.
 APP_NAME=$(printf '%s' "$APP_NAME" | tr -d '\r\n')
 
-# Détection figlet / lolcat (Ubuntu met souvent lolcat dans /usr/games)
+# Detect `figlet` and `lolcat` (Ubuntu sometimes at `/usr/games`).
 FIGLET_BIN=$(command -v figlet 2>/dev/null || echo "")
 LOLCAT_BIN=""
 
@@ -58,7 +53,7 @@ fi
 
 if [ -n "$FIGLET_BIN" ]; then
   if [ -n "$LOLCAT_BIN" ]; then
-    # Largeur généreuse pour éviter les wraps bizarres
+    # Wide width to avoid awkward wrapping.
     "$FIGLET_BIN" -w 200 "$APP_NAME" | "$LOLCAT_BIN" -f
   else
     "$FIGLET_BIN" -w 200 "$APP_NAME"
