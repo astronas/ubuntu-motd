@@ -1,0 +1,112 @@
+# --- MOTD setup based on astronas/ubuntu-motd (public-safe version) ---
+# This block installs dependencies, pulls a public MOTD repo, deploys scripts,
+# disables default Ubuntu snippets without deleting them, and sets environment variables.
+- block:
+
+    - name: Install MOTD dependencies (Debian/Ubuntu)
+      apt:
+        name:
+          - figlet    # used by the colored hostname script
+          - lolcat    # used by the colored hostname script
+        state: present
+        update_cache: yes
+      when: ansible_os_family == "Debian"
+
+    - name: Clone MOTD repository (public upstream)
+      git:
+        repo: "https://github.com/astronas/ubuntu-motd.git"
+        dest: "/opt/ubuntu-motd"
+        version: master
+        update: yes
+      when: ansible_os_family == "Debian"
+
+    - name: Ensure /etc/update-motd.d exists
+      file:
+        path: /etc/update-motd.d
+        state: directory
+        owner: root
+        group: root
+        mode: "0755"
+      when: ansible_os_family == "Debian"
+
+    # --- Deploy scripts (no internal fork references) ---
+    # Copy custom MOTD scripts to /etc/update-motd.d
+    - name: Deploy MOTD scripts
+      copy:
+        src: "/opt/ubuntu-motd/{{ item }}"
+        dest: "/etc/update-motd.d/{{ item }}"
+        owner: root
+        group: root
+        mode: "0755"
+        remote_src: yes
+      loop:
+        - 10-hostname-color
+        - 20-sysinfo
+        - 35-diskspace
+        - 40-services
+      when: ansible_os_family == "Debian"
+
+    # --- Disable default Ubuntu MOTD snippets (keep files, remove executable bit) ---
+    # We only remove the executable bit (chmod 0644) if the file exists.
+    - name: Stat default Ubuntu MOTD snippets
+      stat:
+        path: "{{ item }}"
+      register: ubuntu_motd_snippets
+      loop:
+        - /etc/update-motd.d/10-help-text
+        - /etc/update-motd.d/50-motd-news
+        - /etc/update-motd.d/50-landscape-sysinfo
+        - /etc/update-motd.d/80-livepatch
+        - /etc/update-motd.d/80-esm
+        - /etc/update-motd.d/90-updates-available
+        - /etc/update-motd.d/91-release-upgrade
+        - /etc/update-motd.d/92-unattended-upgrades
+        - /etc/update-motd.d/95-hwe-eol
+        - /etc/update-motd.d/98-fsck-at-reboot
+        - /etc/update-motd.d/98-reboot-required
+      when: ansible_os_family == "Debian"
+
+    - name: Disable default Ubuntu MOTD snippets (remove executable bit, keep files)
+      file:
+        path: "{{ item.stat.path }}"
+        mode: "0644"
+      loop: "{{ ubuntu_motd_snippets.results }}"
+      when:
+        - ansible_os_family == "Debian"
+        - item.stat.exists
+
+    # motd-news configured OFF (keeps the file but disables "ads"/news output)
+    - name: Disable Ubuntu motd-news
+      lineinfile:
+        path: /etc/default/motd-news
+        regexp: "^ENABLED="
+        line: "ENABLED=0"
+        create: yes
+      when: ansible_os_family == "Debian"
+
+    # --- Environment variables consumed by MOTD scripts ---
+    # 10-hostname-color : MOTD_HOST_PREFIX_STRIP, MOTD_HOST_SUFFIX_STRIP, MOTD_HOST_OVERRIDE
+    # 20-sysinfo        : MOTD_ZONE_DMZ_REGEX, MOTD_ZONE_LAN_REGEX, MOTD_ZONE_OTHER_LABEL (optional)
+    # 40-services       : MOTD_SERVICES
+    #
+    # NOTE: Values below are intentionally anonymized. Replace them with your own patterns/naming conventions.
+    - name: Configure MOTD env vars in /etc/environment (anonymized)
+      lineinfile:
+        path: /etc/environment
+        regexp: "^{{ item.key }}="   # replace any existing line for this key
+        line: '{{ item.key }}="{{ item.value }}"'
+        create: yes
+      loop:
+        # Hostname: strip a common prefix if present (example)
+        - { key: "MOTD_HOST_PREFIX_STRIP", value: "vm-" }
+
+        # Network zones (examples): DMZ / LAN (use RFC1918 patterns as placeholders)
+        - { key: "MOTD_ZONE_DMZ_REGEX", value: "^10\\.10\\.[0-9]{1,3}\\." }
+        - { key: "MOTD_ZONE_LAN_REGEX", value: "^10\\.20\\.[0-9]{1,3}\\." }
+        # Optional:
+        # - { key: "MOTD_ZONE_OTHER_LABEL", value: "MGMT" }
+
+        # Services to display (name:label:emoji)
+        # Keep this generic; adjust to what you actually run.
+        - { key: "MOTD_SERVICES", value: "ssh:ssh:🔐 fail2ban:fail2ban:🛡️ ufw:ufw:🚧 docker:docker:🐳 nginx:nginx:🌐 apache2:apache2:📦" }
+      when: ansible_os_family == "Debian"
