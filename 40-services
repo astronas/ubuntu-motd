@@ -63,9 +63,9 @@ echo
 echo "services:"
 
 if [ -n "${MOTD_SERVICES:-}" ]; then
-  # Parse `MOTD_SERVICES` entries separated by spaces; each entry `name:label:icon`.
+  # Parse `MOTD_SERVICES` entries separated by commas; each entry `name:label:icon`.
   OLDIFS=$IFS
-  IFS=' '
+  IFS=','
   for entry in $MOTD_SERVICES; do
     [ -z "$entry" ] && continue
     IFS=':'; set -- $entry
